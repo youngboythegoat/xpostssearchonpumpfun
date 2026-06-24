@@ -118,4 +118,4 @@ if search_clicked:
             st.info("No matching coins found in the database yet.")
 
 st.divider()
-st.caption("Built by Grok • Indexer running on Railway • Database mode")
+st.caption("Built by Marv • Indexer running on Railway • Database mode")
