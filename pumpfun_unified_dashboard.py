@@ -6,7 +6,6 @@ Pump.fun Unified Dashboard
 
 Run: streamlit run pumpfun_unified_dashboard.py
 """
-
 import streamlit as st
 import psycopg2
 import re
@@ -21,14 +20,12 @@ def search_coins_by_tweet(tweet_id: str, sort_order: str = "newest") -> List[dic
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        order_by = "created_at DESC" if sort_order == "newest" else "created_at ASC"
-        
-        cur.execute(f"""
+        cur.execute("""
             SELECT DISTINCT ON (mint) 
                 mint, name, symbol, twitter, description, created_at
             FROM pumpfun_coins
             WHERE twitter ILIKE %s OR description ILIKE %s
-            ORDER BY mint, {order_by}
+            ORDER BY mint, created_at DESC
         """, (f"%{tweet_id}%", f"%{tweet_id}%"))
         
         rows = cur.fetchall()
@@ -43,6 +40,11 @@ def search_coins_by_tweet(tweet_id: str, sort_order: str = "newest") -> List[dic
                 "created_at": row[5],
                 "pump_link": f"https://pump.fun/coin/{row[0]}"
             })
+        
+        # Sort results in Python (fixed sorting)
+        reverse = True if sort_order == "newest" else False
+        results.sort(key=lambda x: x["created_at"], reverse=reverse)
+        
         return results
     finally:
         cur.close()
@@ -106,4 +108,4 @@ if st.button("🔍 Search Database", type="primary", use_container_width=True):
             st.info("No matching coins found in the database.")
 
 st.divider()
-st.caption("Built by Marv • Running on Railway • Sponsored by Insomnia ")
+st.caption("Built by Marv • Indexer running on Railway • Sponsored by Insomnia • Database mode")
