@@ -7,16 +7,43 @@ Pump.fun Unified Dashboard
 Run: streamlit run pumpfun_unified_dashboard.py
 """
 import streamlit as st
-import requests
+import psycopg2
 import re
-import time
 from typing import List, Dict, Optional
 
-PUMP_API = "https://frontend-api-v3.pump.fun"
-BIRDEYE_BASE = "https://public-api.birdeye.so"
+# Get database URL from Streamlit secrets
+DATABASE_URL = st.secrets["DATABASE_URL"]
 
-if "birdeye_key" not in st.session_state:
-    st.session_state.birdeye_key = ""
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
+
+def search_coins_by_tweet(tweet_id: str) -> List[dict]:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT mint, name, symbol, twitter, description, created_at
+            FROM pumpfun_coins
+            WHERE twitter ILIKE %s OR description ILIKE %s
+            ORDER BY created_at DESC
+        """, (f"%{tweet_id}%", f"%{tweet_id}%"))
+        
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            results.append({
+                "mint": row[0],
+                "name": row[1],
+                "symbol": row[2],
+                "twitter": row[3],
+                "description": row[4],
+                "created_at": row[5],
+                "pump_link": f"https://pump.fun/coin/{row[0]}"
+            })
+        return results
+    finally:
+        cur.close()
+        conn.close()
 
 def extract_tweet_id(text: str) -> Optional[str]:
     if not text:
@@ -29,149 +56,34 @@ def extract_tweet_id(text: str) -> Optional[str]:
             return match.group(1)
     return None
 
-def normalize(text: str) -> str:
-    return (text or "").lower().replace("twitter.com", "x.com")
-
-def matches_tweet(twitter: str, description: str, tweet_id: str) -> bool:
-    nt = normalize(twitter)
-    nd = (description or "").lower()
-    return tweet_id in nt or f"status/{tweet_id}" in nt or tweet_id in nd
-
-def get_birdeye_headers():
-    key = st.session_state.birdeye_key.strip()
-    headers = {"accept": "application/json", "x-chain": "solana"}
-    if key:
-        headers["X-API-KEY"] = key
-    return headers
-
-def aggressive_search(tweet_id: str) -> List[dict]:
-    matches = []
-    total_checked = 0
-
-    # === BIRDEYE ===
-    st.info("Step 1/2: Trying Birdeye (more data)...")
-    try:
-        url = f"{BIRDEYE_BASE}/defi/v2/tokens/new_listing"
-        # Try with boolean True instead of string
-        params = {"limit": 80, "meme_platform_enabled": True}
-        
-        r = requests.get(url, params=params, headers=get_birdeye_headers(), timeout=20)
-        
-        if r.status_code == 200:
-            items = r.json().get("data", {}).get("items", [])
-            st.caption(f"Birdeye returned {len(items)} tokens. Checking socials...")
-
-            for item in items:
-                total_checked += 1
-                mint = item.get("address")
-                if not mint:
-                    continue
-
-                try:
-                    detail_r = requests.get(
-                        f"{BIRDEYE_BASE}/defi/token_overview",
-                        params={"address": mint},
-                        headers=get_birdeye_headers(),
-                        timeout=6
-                    )
-                    details = detail_r.json().get("data", {}) if detail_r.status_code == 200 else {}
-
-                    twitter = details.get("twitter", "") or details.get("extensions", {}).get("twitter", "") or ""
-                    desc = details.get("description", "") or ""
-
-                    if matches_tweet(twitter, desc, tweet_id):
-                        matches.append({
-                            "source": "Birdeye",
-                            "mint": mint,
-                            "name": details.get("name") or item.get("symbol", "Unknown"),
-                            "symbol": details.get("symbol") or item.get("symbol", "???"),
-                            "twitter": twitter,
-                            "market_cap": details.get("mc", 0),
-                            "pump_link": f"https://pump.fun/coin/{mint}",
-                        })
-                except:
-                    continue
-        else:
-            st.warning(f"Birdeye returned status {r.status_code}. Using Pump.fun only...")
-
-    except Exception as e:
-        st.warning(f"Birdeye failed: {e}. Using Pump.fun only...")
-
-    # === PUMP.FUN (Aggressive) ===
-    st.info("Step 2/2: Aggressively scanning Pump.fun (this will take time)...")
-    
-    try:
-        seen = set()
-        progress = st.empty()
-
-        for i in range(250):  # Very aggressive
-            try:
-                latest = requests.get(f"{PUMP_API}/coins/latest", timeout=5).json()
-                mint = latest.get("mint")
-
-                if mint and mint not in seen:
-                    seen.add(mint)
-                    total_checked += 1
-
-                    if total_checked % 30 == 0:
-                        progress.caption(f"Checked {total_checked} coins so far...")
-
-                    details = requests.get(f"{PUMP_API}/coins/{mint}", timeout=6).json()
-
-                    if matches_tweet(details.get("twitter", ""), details.get("description", ""), tweet_id):
-                        matches.append({
-                            "source": "Pump.fun",
-                            "mint": mint,
-                            "name": details.get("name"),
-                            "symbol": details.get("symbol"),
-                            "twitter": details.get("twitter", ""),
-                            "market_cap": details.get("usd_market_cap", 0),
-                            "pump_link": f"https://pump.fun/coin/{mint}",
-                        })
-
-                time.sleep(0.08)  # Small delay to be nice to the API
-
-            except:
-                time.sleep(0.2)
-                continue
-
-    except Exception as e:
-        st.warning(f"Pump.fun scanning error: {e}")
-
-    # Final results
-    unique = {m["mint"]: m for m in matches}
-    final = list(unique.values())
-    final.sort(key=lambda x: x.get("market_cap", 0), reverse=True)
-
-    st.success(f"Search finished. Checked ~{total_checked} coins. Found {len(final)} match(es).")
-    return final
-
 # ==================== UI ====================
 st.set_page_config(page_title="Pump.fun Alpha Search", layout="wide")
-st.title("🚀 Pump.fun Alpha Search")
-st.caption("Aggressive Mode • Birdeye + Pump.fun")
-
-st.session_state.birdeye_key = st.sidebar.text_input(
-    "Birdeye API Key (Recommended)",
-    value=st.session_state.birdeye_key,
-    type="password",
-    key="birdeye_input"
-)
+st.title("🚀 Pump.fun Alpha Search (Database Mode)")
+st.caption("Searching from saved coins in the database")
 
 tweet_input = st.text_input("Paste Tweet URL or Tweet ID")
 
-if st.button("🔍 Search Aggressively", type="primary", use_container_width=True):
-    tid = extract_tweet_id(tweet_input)
-    if not tid:
-        st.error("Invalid tweet URL or ID")
+if st.button("🔍 Search in Database", type="primary", use_container_width=True):
+    tweet_id = extract_tweet_id(tweet_input)
+    
+    if not tweet_id:
+        st.error("Could not extract a valid tweet ID.")
     else:
-        with st.spinner("Running deep aggressive search... Please wait."):
-            results = aggressive_search(tid)
-
+        with st.spinner("Searching database..."):
+            results = search_coins_by_tweet(tweet_id)
+        
         if results:
-            import pandas as pd
-            df = pd.DataFrame(results)
-            st.dataframe(df[["source", "name", "symbol", "market_cap", "mint", "pump_link"]], 
-                        use_container_width=True, hide_index=True)
+            st.success(f"Found {len(results)} matching coin(s) in the database!")
+            for coin in results:
+                st.markdown(f"""
+                **{coin['name']} (${coin['symbol']})**  
+                Mint: `{coin['mint']}`  
+                Twitter: {coin['twitter'] or 'N/A'}  
+                [View on pump.fun]({coin['pump_link']})
+                ---
+                """)
         else:
-            st.warning("No matches found after deep scan.")
+            st.warning("No matches found in the database yet. The coin might not have been indexed or doesn't contain the tweet ID.")
+
+st.divider()
+st.caption("Database-powered search • Indexer running on Railway")
