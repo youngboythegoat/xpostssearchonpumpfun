@@ -76,7 +76,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-title">🧵 marv\'s pumpfun alpha tweet search</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Find Pump.fun coins linked to tweets — powered by our indexer</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Find Pump.fun coins linked to tweets — powered by our insomnia</p>', unsafe_allow_html=True)
 
 tweet_input = st.text_input(
     "Paste Tweet URL or Tweet ID",
