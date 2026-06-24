@@ -17,16 +17,18 @@ DATABASE_URL = st.secrets["DATABASE_URL"]
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
-def search_coins_by_tweet(tweet_id: str) -> List[dict]:
+def search_coins_by_tweet(tweet_id: str, sort_order: str = "newest") -> List[dict]:
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute("""
+        order_by = "created_at DESC" if sort_order == "newest" else "created_at ASC"
+        
+        cur.execute(f"""
             SELECT DISTINCT ON (mint) 
                 mint, name, symbol, twitter, description, created_at
             FROM pumpfun_coins
             WHERE twitter ILIKE %s OR description ILIKE %s
-            ORDER BY mint, created_at DESC
+            ORDER BY mint, {order_by}
         """, (f"%{tweet_id}%", f"%{tweet_id}%"))
         
         rows = cur.fetchall()
@@ -60,42 +62,30 @@ def extract_tweet_id(text: str) -> Optional[str]:
 # ==================== UI ====================
 st.set_page_config(page_title="marv's pumpfun alpha tweet search", layout="centered")
 
-st.markdown("""
-    <style>
-    .main-title {
-        font-size: 2.2rem;
-        font-weight: 700;
-        margin-bottom: 0.2rem;
-    }
-    .subtitle {
-        font-size: 1rem;
-        color: #888;
-        margin-bottom: 1.5rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-st.markdown('<p class="main-title">🧵 marv\'s pumpfun alpha tweet search</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Find Pump.fun coins linked to tweets — powered by insomnia</p>', unsafe_allow_html=True)
+st.title("🧵 marv's pumpfun alpha tweet search")
+st.caption("Search coins linked to tweets using our indexed database")
 
 tweet_input = st.text_input(
     "Paste Tweet URL or Tweet ID",
-    placeholder="https://x.com/user/status/1234567890123456789",
-    label_visibility="collapsed"
+    placeholder="https://x.com/user/status/1234567890123456789"
 )
 
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    search_clicked = st.button("🔍 Search Database", type="primary", use_container_width=True)
+# Sort options
+sort_option = st.selectbox(
+    "Sort by",
+    options=["Newest first", "Oldest first"],
+    index=0
+)
+sort_key = "newest" if sort_option == "Newest first" else "oldest"
 
-if search_clicked:
+if st.button("🔍 Search Database", type="primary", use_container_width=True):
     tweet_id = extract_tweet_id(tweet_input)
     
     if not tweet_id:
         st.error("Could not extract a valid tweet ID.")
     else:
-        with st.spinner("Searching the database..."):
-            results = search_coins_by_tweet(tweet_id)
+        with st.spinner("Searching..."):
+            results = search_coins_by_tweet(tweet_id, sort_key)
         
         if results:
             st.success(f"Found {len(results)} matching coin(s)")
@@ -103,19 +93,17 @@ if search_clicked:
             for coin in results:
                 with st.container(border=True):
                     st.markdown(f"### {coin['name']} (${coin['symbol']})")
+                    st.markdown(f"**Mint:** `{coin['mint']}`")
                     
-                    cols = st.columns([3, 1])
-                    with cols[0]:
-                        st.markdown(f"**Mint:** `{coin['mint']}`")
-                        if coin.get("twitter"):
-                            st.markdown(f"**Twitter:** {coin['twitter']}")
-                        if coin.get("description"):
-                            st.caption(coin["description"][:180])
+                    if coin.get("twitter"):
+                        st.markdown(f"**Twitter:** {coin['twitter']}")
                     
-                    with cols[1]:
-                        st.link_button("View on pump.fun", coin["pump_link"], use_container_width=True)
+                    if coin.get("description"):
+                        st.caption(coin["description"][:200])
+                    
+                    st.link_button("View on pump.fun", coin["pump_link"], use_container_width=True)
         else:
-            st.info("No matching coins found in the database yet.")
+            st.info("No matching coins found in the database.")
 
 st.divider()
-st.caption("Built by Marv • Indexer running on Railway • Database mode")
+st.caption("Built by Marv • Running on Railway • Sponsored by Insomnia ")
