@@ -9,9 +9,11 @@ Run: streamlit run pumpfun_unified_dashboard.py
 import streamlit as st
 import psycopg2
 import re
+import os
 from typing import List, Dict, Optional
 
-DATABASE_URL = st.secrets["DATABASE_URL"]
+# Get database URL from environment variable (for Railway)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
@@ -41,7 +43,7 @@ def search_coins_by_tweet(tweet_id: str, sort_order: str = "newest") -> List[dic
                 "pump_link": f"https://pump.fun/coin/{row[0]}"
             })
         
-        # Sort results in Python (fixed sorting)
+        # Sort results in Python
         reverse = True if sort_order == "newest" else False
         results.sort(key=lambda x: x["created_at"], reverse=reverse)
         
