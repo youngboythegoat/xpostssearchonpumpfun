@@ -11,7 +11,6 @@ import psycopg2
 import re
 from typing import List, Dict, Optional
 
-# Get database URL from Streamlit secrets
 DATABASE_URL = st.secrets["DATABASE_URL"]
 
 def get_db_connection():
@@ -22,10 +21,11 @@ def search_coins_by_tweet(tweet_id: str) -> List[dict]:
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT mint, name, symbol, twitter, description, created_at
+            SELECT DISTINCT ON (mint) 
+                mint, name, symbol, twitter, description, created_at
             FROM pumpfun_coins
             WHERE twitter ILIKE %s OR description ILIKE %s
-            ORDER BY created_at DESC
+            ORDER BY mint, created_at DESC
         """, (f"%{tweet_id}%", f"%{tweet_id}%"))
         
         rows = cur.fetchall()
@@ -58,32 +58,46 @@ def extract_tweet_id(text: str) -> Optional[str]:
 
 # ==================== UI ====================
 st.set_page_config(page_title="Pump.fun Alpha Search", layout="wide")
-st.title("🚀 Pump.fun Alpha Search (Database Mode)")
-st.caption("Searching from saved coins in the database")
+st.title("🚀 Pump.fun Alpha Search")
+st.caption("Search coins by tweet using our indexed database")
 
-tweet_input = st.text_input("Paste Tweet URL or Tweet ID")
+tweet_input = st.text_input(
+    "Paste Tweet URL or Tweet ID",
+    placeholder="https://x.com/user/status/1234567890123456789"
+)
 
-if st.button("🔍 Search in Database", type="primary", use_container_width=True):
+if st.button("🔍 Search Database", type="primary", use_container_width=True):
     tweet_id = extract_tweet_id(tweet_input)
     
     if not tweet_id:
-        st.error("Could not extract a valid tweet ID.")
+        st.error("Could not extract a valid tweet ID from the input.")
     else:
-        with st.spinner("Searching database..."):
+        with st.spinner("Searching..."):
             results = search_coins_by_tweet(tweet_id)
         
         if results:
             st.success(f"Found {len(results)} matching coin(s) in the database!")
+            
             for coin in results:
-                st.markdown(f"""
-                **{coin['name']} (${coin['symbol']})**  
-                Mint: `{coin['mint']}`  
-                Twitter: {coin['twitter'] or 'N/A'}  
-                [View on pump.fun]({coin['pump_link']})
-                ---
-                """)
+                with st.container(border=True):
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        st.markdown(f"### {coin['name']} (${coin['symbol']})")
+                        st.markdown(f"**Mint:** `{coin['mint']}`")
+                        
+                        if coin['twitter']:
+                            st.markdown(f"**Twitter:** {coin['twitter']}")
+                        
+                        if coin.get('description'):
+                            st.caption(coin['description'][:200])
+                    
+                    with col2:
+                        st.link_button("View on pump.fun", coin['pump_link'], use_container_width=True)
+                        if coin.get('created_at'):
+                            st.caption(f"Indexed: {coin['created_at'].strftime('%Y-%m-%d %H:%M')}")
         else:
-            st.warning("No matches found in the database yet. The coin might not have been indexed or doesn't contain the tweet ID.")
+            st.warning("No matching coins found in the database yet.")
 
 st.divider()
-st.caption("Database-powered search • Indexer running on Railway")
+st.caption("Powered by our Railway indexer • Database mode")
