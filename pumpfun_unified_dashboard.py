@@ -6,6 +6,7 @@ Pump.fun Unified Dashboard
 
 Run: streamlit run pumpfun_unified_dashboard.py
 """
+
 import streamlit as st
 import psycopg2
 import re
@@ -57,47 +58,64 @@ def extract_tweet_id(text: str) -> Optional[str]:
     return None
 
 # ==================== UI ====================
-st.set_page_config(page_title="Pump.fun Alpha Search", layout="wide")
-st.title("🚀 Pump.fun Alpha Search")
-st.caption("Search coins by tweet using our indexed database")
+st.set_page_config(page_title="marv's pumpfun alpha tweet search", layout="centered")
+
+st.markdown("""
+    <style>
+    .main-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+    }
+    .subtitle {
+        font-size: 1rem;
+        color: #888;
+        margin-bottom: 1.5rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<p class="main-title">🧵 marv\'s pumpfun alpha tweet search</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Find Pump.fun coins linked to tweets — powered by our indexer</p>', unsafe_allow_html=True)
 
 tweet_input = st.text_input(
     "Paste Tweet URL or Tweet ID",
-    placeholder="https://x.com/user/status/1234567890123456789"
+    placeholder="https://x.com/user/status/1234567890123456789",
+    label_visibility="collapsed"
 )
 
-if st.button("🔍 Search Database", type="primary", use_container_width=True):
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    search_clicked = st.button("🔍 Search Database", type="primary", use_container_width=True)
+
+if search_clicked:
     tweet_id = extract_tweet_id(tweet_input)
     
     if not tweet_id:
-        st.error("Could not extract a valid tweet ID from the input.")
+        st.error("Could not extract a valid tweet ID.")
     else:
-        with st.spinner("Searching..."):
+        with st.spinner("Searching the database..."):
             results = search_coins_by_tweet(tweet_id)
         
         if results:
-            st.success(f"Found {len(results)} matching coin(s) in the database!")
+            st.success(f"Found {len(results)} matching coin(s)")
             
             for coin in results:
                 with st.container(border=True):
-                    col1, col2 = st.columns([3, 1])
+                    st.markdown(f"### {coin['name']} (${coin['symbol']})")
                     
-                    with col1:
-                        st.markdown(f"### {coin['name']} (${coin['symbol']})")
+                    cols = st.columns([3, 1])
+                    with cols[0]:
                         st.markdown(f"**Mint:** `{coin['mint']}`")
-                        
-                        if coin['twitter']:
+                        if coin.get("twitter"):
                             st.markdown(f"**Twitter:** {coin['twitter']}")
-                        
-                        if coin.get('description'):
-                            st.caption(coin['description'][:200])
+                        if coin.get("description"):
+                            st.caption(coin["description"][:180])
                     
-                    with col2:
-                        st.link_button("View on pump.fun", coin['pump_link'], use_container_width=True)
-                        if coin.get('created_at'):
-                            st.caption(f"Indexed: {coin['created_at'].strftime('%Y-%m-%d %H:%M')}")
+                    with cols[1]:
+                        st.link_button("View on pump.fun", coin["pump_link"], use_container_width=True)
         else:
-            st.warning("No matching coins found in the database yet.")
+            st.info("No matching coins found in the database yet.")
 
 st.divider()
-st.caption("Powered by our Railway indexer • Database mode")
+st.caption("Built by Grok • Indexer running on Railway • Database mode")
